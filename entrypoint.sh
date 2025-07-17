@@ -1,10 +1,6 @@
 #!/bin/bash
 set -e
 
-# Activate conda environment
-source /opt/conda/etc/profile.d/conda.sh
-conda activate temstapro_env
-
 # Handle special case: if first argument is --help, just pass it through
 if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
     exec /app/temstapro --help
@@ -32,11 +28,9 @@ if [ -z "$MODEL_PATH" ]; then
     exit 1
 fi
 
-# Verify CUDA is available (optional check)
+# Verify CUDA is available
 echo "Checking CUDA availability..."
 python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}'); print(f'CUDA devices: {torch.cuda.device_count()}')" || echo "Warning: Could not check CUDA status"
 
-# Run the TemStaPro prediction script with the correct parameter name
-# Using -d for ProtTrans directory as shown in the documentation
-# Note: TemStaPro is executed as ./temstapro, not as a Python script
+# Run the TemStaPro prediction script
 exec /app/temstapro -d "$MODEL_PATH" "$@"

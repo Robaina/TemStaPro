@@ -1,55 +1,58 @@
-# Use an NVIDIA CUDA base image with CUDA 11.7 and cuDNN 8 on Ubuntu 20.04
+# Use NVIDIA CUDA base image with Python 3.7
 FROM nvidia/cuda:11.7.1-cudnn8-devel-ubuntu20.04
 
-# Install system dependencies
+# Install system dependencies including Python 3.7
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget \
-    bzip2 \
-    ca-certificates \
+    software-properties-common \
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+    python3.7 \
+    python3.7-dev \
+    python3.7-distutils \
+    python3-pip \
     git \
     make \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Miniconda (following TemStaPro recommendations)
-RUN wget -q https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /tmp/miniconda.sh && \
-    bash /tmp/miniconda.sh -b -p /opt/conda && \
-    rm /tmp/miniconda.sh
-ENV PATH="/opt/conda/bin:${PATH}"
+# Set python3.7 as default
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.7 1 && \
+    update-alternatives --install /usr/bin/python python /usr/bin/python3.7 1
+
+# Upgrade pip for python3.7
+RUN python3.7 -m pip install --upgrade pip
 
 # Set working directory
 WORKDIR /app
 
-# Copy TemStaPro repository code (copy before environment setup to use environment files if available)
+# Copy TemStaPro repository code
 COPY . /app
 
-# Create conda environment - try using provided YML file first, fallback to manual setup
-RUN if [ -f environment_GPU.yml ]; then \
-    conda env create -f environment_GPU.yml; \
-    else \
-    conda create -n temstapro_env python=3.7 -y && \
-    conda run -n temstapro_env conda install pytorch torchvision torchaudio pytorch-cuda=11.7 -c pytorch -c nvidia -y && \
-    conda run -n temstapro_env conda install -c conda-forge transformers -y && \
-    conda run -n temstapro_env conda install -c conda-forge sentencepiece -y && \
-    conda run -n temstapro_env conda install -c conda-forge matplotlib -y; \
-    fi
+# Install exact PyTorch version matching conda approach
+RUN pip install torch==1.13.1+cu117 torchvision==0.14.1+cu117 torchaudio==0.13.1 \
+    --extra-index-url https://download.pytorch.org/whl/cu117
+
+# Install other dependencies to match conda versions
+RUN pip install \
+    transformers==4.21.3 \
+    sentencepiece==0.1.97 \
+    matplotlib==3.5.3 \
+    numpy
 
 # Ensure the TemStaPro script has execute permission
 RUN chmod +x /app/temstapro
 
-# Test CUDA availability in the environment
-RUN conda run -n temstapro_env python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')" || true
+# Test CUDA availability (following docs exactly)
+RUN python -c "import torch; print('CUDA available:', torch.cuda.is_available())"
 
-# Test the setup (following docs recommendation) - may fail first time due to downloads
-RUN conda run -n temstapro_env make clean || true
-RUN conda run -n temstapro_env make all || (echo "First test run failed (likely due to downloads), trying again..." && conda run -n temstapro_env make clean && conda run -n temstapro_env make all)
+# Test the setup (following docs recommendation)
+RUN make clean || true
+RUN make all || (echo "First test run failed, trying again..." && make clean && make all)
 
-# Copy and set up entrypoint script
+# Copy and set up entrypoint script  
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
-
-# Set environment to automatically activate conda environment
-ENV CONDA_DEFAULT_ENV=temstapro_env
-ENV PATH="/opt/conda/envs/temstapro_env/bin:${PATH}"
 
 ENTRYPOINT ["/app/entrypoint.sh"]
